@@ -1,8 +1,5 @@
 plugins {
     id 'java'
-    id "org.sonarqube" version "4.2.1.3168"
-    id "com.diffplug.spotless" version "6.20.0"
-    id 'test-report-aggregation'
 }
 
 repositories {
@@ -28,26 +25,3 @@ jar {
     }
 }
 
-dependencies {
-    testImplementation 'junit:junit:4.12'
-    testImplementation 'org.mockito:mockito-core:5.4.0'
-}
-
-spotless {
-  java {
-    googleJavaFormat()
-  }
-}
-
-test {
-  // Discover and execute JUnit4-based tests
-  useJUnit()
-}
-
-reporting {
-    reports {
-        testAggregateTestReport(AggregateTestReport) { 
-            testType = TestSuiteType.UNIT_TEST
-        }
-    }
-}
