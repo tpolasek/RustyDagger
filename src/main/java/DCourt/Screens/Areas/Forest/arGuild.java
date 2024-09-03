@@ -141,20 +141,23 @@ public class arGuild extends Indoors {
         i++;
       } else if (h.getMoney() >= this.cost[i]) {
         h.subMoney(this.cost[i]);
-        switch (i) {
-          case 0:
-            next = joinGuild(h);
-            break;
-          case 1:
-            next = addFight(h);
-            break;
-          case 2:
-            next = addMagic(h);
-            break;
-          case 3:
-            next = addThief(h);
-            break;
+        if(i == 0){
+          next = joinGuild(h);
+          break;
         }
+        if(i == 1){
+          next = addFight(h);
+          break;
+        }
+        if(i == 2){
+          next = addMagic(h);
+          break;
+        }
+        if(i == 3){
+          next = addThief(h);
+          break;
+        }
+        break;
       }
     }
     Tools.setRegion(next);

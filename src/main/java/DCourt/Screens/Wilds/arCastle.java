@@ -130,7 +130,7 @@ public class arCastle extends WildsScreen {
   @Override // DCourt.Screens.Template.WildsScreen
   public void goQuesting(int loc) {
     if (loc < 2) {
-      goQuesting(loc);
+      super.goQuesting(loc);
     } else if (testAdvance(loc)) {
       if (!Tools.contest(Screen.getWits(), FIND_OCEAN)) {
         Tools.setRegion(
@@ -138,11 +138,11 @@ public class arCastle extends WildsScreen {
                 this, DOCKS_FAILURE.concat(String.valueOf(String.valueOf(Tools.select(oceans))))));
         Screen.getHero().addFatigue(1);
       } else if (Screen.packCount("Rutter for Shangala") > 0 && Tools.percent(70)) {
-        goQuesting(4);
+        super.goQuesting(4);
       } else if (Screen.packCount("Rutter for Hie Brasil") <= 0 || !Tools.percent(70)) {
-        goQuesting(2);
+        super.goQuesting(2);
       } else {
-        goQuesting(3);
+        super.goQuesting(3);
       }
     }
   }
