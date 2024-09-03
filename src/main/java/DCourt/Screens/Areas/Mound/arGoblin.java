@@ -157,7 +157,7 @@ public class arGoblin extends Shop implements GRumors {
   public void updateTools() {
     boolean inBar = this.bar_shop.getCurrent() == this.bar;
     int cash = Screen.getHero().getMoney();
-    updateTools();
+    super.updateTools();
     hideTools(inBar ? 2 : 1);
     for (int i = 0; i < this.tools.length; i++) {
       this.tools[i].enable(cash >= cost[i]);
@@ -193,17 +193,19 @@ public class arGoblin extends Shop implements GRumors {
           ix++;
         } else if (Screen.getMoney() >= cost[ix]) {
           Screen.subMoney(cost[ix]);
-          switch (ix) {
-            case 0:
+          if(ix == 0){
               Tools.setRegion(Screen.tryToExit(this, Constants.MOUND, cost[ix]));
               break;
-            case 1:
+          }
+          if(ix == 1){
               Tools.setRegion(rumors());
               break;
-            case 2:
+          }
+          if(ix == 2){
               Tools.setRegion(Screen.tryToExit(this, Constants.COT, cost[ix]));
               break;
           }
+          break;
         }
       }
     }

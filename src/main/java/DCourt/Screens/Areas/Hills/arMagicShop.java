@@ -81,6 +81,6 @@ public class arMagicShop extends Trade implements GearTypes {
 
   @Override // DCourt.Screens.Template.Shop
   public int stockValue(Item it) {
-    return stockValue(it) * 2;
+    return super.stockValue(it) * 2;
   }
 }
