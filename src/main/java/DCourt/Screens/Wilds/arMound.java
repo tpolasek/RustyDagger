@@ -144,13 +144,9 @@ public class arMound extends WildsScreen {
     if (Screen.getQuests() < 1) {
       return new arNotice(this, WildsScreen.TOO_TIRED);
     }
-    Buffer buf = Loader.cgiBuffer(Loader.MESSAGE, null);
-    if (buf == null || buf.isEmpty() || buf.isError()) {
-      return null;
-    }
     return new arQuest(
         this,
-        new arNotice(this, buf.toString()),
+        new arNotice(this, "entering the vortex"),
         4,
         "Vortex Mouth",
         Screen.findBeast("Vortex:Guard"));
