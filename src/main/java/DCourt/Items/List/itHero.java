@@ -365,7 +365,11 @@ public class itHero extends itAgent {
   }
 
   public int getSocial() {
-    return getRank().getCount(Constants.SOCIAL);
+    int rank = getRank().getCount(Constants.SOCIAL);
+    if(rank < 2){
+      rank = 2;
+    }
+    return rank;
   }
 
   public String getTitle() {

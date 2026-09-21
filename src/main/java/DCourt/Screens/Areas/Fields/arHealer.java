@@ -131,9 +131,9 @@ public class arHealer extends Screen {
     if (level < 1) {
       level = 1;
     }
-    this.cost[0] = mercy ? 0 : (wounds / 4) * level;
-    this.cost[1] = mercy ? 0 : (wounds / 2) * level;
-    this.cost[2] = wounds < 1 ? 0 : mercy ? 1 : wounds * level;
+    this.cost[0] = 2*(wounds/4);
+    this.cost[1] = 2*(wounds/2);
+    this.cost[2] = 2*wounds;
     this.cost[3] = (cash + 9) / 10;
     this.cost[4] =
         (disease > 0 || h.hasTrait("Blind") || h.hasTrait("Panic")) ? mercy ? 1 : 10 * level : 0;

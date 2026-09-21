@@ -281,6 +281,10 @@ public class itArms extends itList implements ArmsTrait {
   @Override // DCourt.Items.itList, DCourt.Items.itToken, DCourt.Items.Item
   public boolean decay(int rate) {
     clrTrait(ArmsTrait.DECAY);
+    return false;
+
+    // DISABLED, DECAY IS GAY
+    /*
     if (rate < 2) {
       rate = 2;
     }
@@ -301,6 +305,7 @@ public class itArms extends itList implements ArmsTrait {
         ArmsTrait.VISIBLE_TRAIT + Tools.roll(ArmsTrait.ENCHANT_TRAIT - ArmsTrait.VISIBLE_TRAIT));
     sub(ArmsTrait.ENCHANT, (getEnchant() + 4) / 5);
     return true;
+    */
   }
 
   public void tweak() {

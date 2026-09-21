@@ -322,19 +322,10 @@ public abstract class Shop extends Indoors {
       if (num > val) {
         num = val;
       }
-      int val2 = h.holdMax() - h.heroHas(it);
-      if (num > val2) {
-        num = val2;
-      }
       if (num != 0) {
         h.subMoney(cost * num);
         h.addPack(it.getName(), num);
         int ix = this.table.getSelect();
-        if (num == val2) {
-          this.table.delItem(ix);
-          this.table.setSelect(-1);
-          return;
-        }
         this.table.setItem(shopName(it), ix);
       }
     }
