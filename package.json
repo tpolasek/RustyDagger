@@ -5,7 +5,8 @@
   "type": "commonjs",
   "scripts": {
     "build": "tsc --noEmit && esbuild src/ts/main.ts --bundle --outfile=dist/bundle.js --format=iife --target=es2022",
-    "serve": "esbuild src/ts/main.ts --bundle --outfile=dist/bundle.js --format=iife --servedir=. --watch",
+    "serve": "npm run build && node server.mjs",
+    "start": "node server.mjs",
     "test": "tsc -p tsconfig.test.json && node --test \"dist-test/test/*.test.js\""
   },
   "devDependencies": {

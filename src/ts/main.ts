@@ -2,8 +2,13 @@ import { arLoading } from "./DCourt/Screens/Command";
 import "./DCourt/Screens/Areas/areasIndex";
 import "./DCourt/Screens/Wilds";
 import { Tools } from "./DCourt/Tools/Tools";
+import { FileLoader } from "./DCourt/Tools/FileLoader";
 
-function boot(): void {
+async function boot(): Promise<void> {
+  if (!(await FileLoader.probeServer())) {
+    console.warn("[DCourt] game server not found - saving to localStorage instead");
+  }
+  await FileLoader.migrate();
   Tools.setArtpath("Images");
   Tools.installStage("stage");
   Tools.setRegion(new arLoading());

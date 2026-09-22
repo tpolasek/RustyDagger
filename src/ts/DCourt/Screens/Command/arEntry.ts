@@ -32,6 +32,7 @@ import { Button } from "../../ui/button";
 import { FTextField } from "../../ui/textField";
 import type { GameEvent } from "../../ui/widget";
 import { Tools, log } from "../../Tools/Tools";
+import { FileLoader } from "../../Tools/FileLoader";
 import { arNotice } from "../Utility/arNotice";
 import { arBuild } from "./arBuild";
 import { arCreate } from "./arCreate";
@@ -98,6 +99,7 @@ export class arEntry extends Screen {
   private credits!: Button;
   /** Java `Image splash` - the title art, loaded in the constructor. */
   private splash: HTMLImageElement | null;
+  private loginError: string | null = null;
 
   constructor() {
     super("Title Screen");
@@ -136,6 +138,15 @@ export class arEntry extends Screen {
     const val2 = fontAscent(this.getFont());
     this.label("Hero Name", 25, 232 + val2);
     this.label("Password", 28, 262 + val2);
+    if (this.loginError !== null) {
+      const node = this.center(
+        this.loginError,
+        Tools.DEFAULT_WIDTH / 2,
+        150 + Math.trunc(val2 / 2),
+        { color: color(255, 80, 80), background: "rgba(0, 0, 0, 0.75)" },
+      );
+      node.style.padding = "2px 8px";
+    }
   }
 
   /** Java `actionPerformed(ActionEvent)` + `mouseClicked(MouseEvent)`. */
@@ -150,7 +161,7 @@ export class arEntry extends Screen {
       Tools.setRegion(new arNotice(this, GameStrings.creditText));
     }
     if (e.target === this.getPic(0)) {
-      Tools.setRegion(this.enterGame());
+      this.submitLogin();
     }
     return super.action(e, o);
   }
@@ -192,24 +203,61 @@ export class arEntry extends Screen {
     this.add(this.credits);
   }
 
-  /** Java `keyPressed(KeyEvent)`: show the portrait while the name is long enough. */
   refreshEnter(): void {
+    if (this.loginError !== null) {
+      this.loginError = null;
+      this.repaint();
+    }
     this.getPic(0)?.show(this.testNames());
   }
 
   /** The Enter-key affordance for the two fields (see the file header). */
   private enterOnReturn(): void {
-    if (this.testNames()) {
-      Tools.setRegion(this.enterGame());
-    }
+    this.submitLogin();
   }
 
-  /** Java `testNames()`: the password check is commented out in Java as well. */
+  private pending = false;
+
+  private submitLogin(): void {
+    if (this.pending || !this.testNames()) {
+      return;
+    }
+    this.pending = true;
+    const name = this.scoreString(this.nameTXF.getText());
+    const pass = this.scoreString(this.passTXF.getText());
+    void FileLoader.login(name, pass)
+      .then(async (status) => {
+        if (status === 'wrong') {
+          this.loginFailed('Wrong Password!');
+          return;
+        }
+        if (status !== 'created' && status !== 'ok') {
+          this.loginFailed('Server Not Responding.');
+          return;
+        }
+        if (status === 'created') {
+          log(`new account ${name}`);
+        }
+        await FileLoader.fetchHero(name);
+        this.pending = false;
+        if (!Tools.movedAway(this)) {
+          Tools.setRegion(this.enterGame());
+        }
+      })
+      .catch((e) => {
+        log(`submitLogin failed: ${String(e)}`);
+        this.loginFailed('Server Not Responding.');
+      });
+  }
+
+  private loginFailed(message: string): void {
+    this.pending = false;
+    this.loginError = message;
+    this.repaint();
+  }
+
   testNames(): boolean {
-    return this.nameTXF.getText().length >= 4;
-    /* no password with local storage
-    && this.passTXF.getText().length >= 4;
-    */
+    return this.nameTXF.getText().length >= 4 && this.passTXF.getText().length >= 1;
   }
 
   /** Java `scoreString(String)`: pad the trimmed-away spaces with '_'. */

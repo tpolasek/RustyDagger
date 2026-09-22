@@ -243,6 +243,15 @@ export class arPeer extends arNotice {
       // Java declared the loader's result nullable; the ported loader never is.
       const buf: Buffer | null = FileLoader.loadHero(who);
       if (buf === null || buf.isEmpty() || buf.isError()) {
+        if (!FileLoader.hasCached(String(who))) {
+          this.setMessage(`Seeking <${this.pname}>`);
+          FileLoader.whenHeroLoaded(String(who), () => {
+            if (!Tools.movedAway(this)) {
+              this.LoadVision(who);
+            }
+          });
+          return;
+        }
         this.setMessage(`Unable to Load <${this.pname}>`);
         return;
       }
