@@ -1,0 +1,15 @@
+{
+  "name": "rusty-dagger-browser",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc --noEmit && esbuild src/ts/main.ts --bundle --outfile=dist/bundle.js --format=iife --target=es2022",
+    "serve": "esbuild src/ts/main.ts --bundle --outfile=dist/bundle.js --format=iife --servedir=. --watch",
+    "test": "tsc -p tsconfig.test.json && node --test \"dist-test/test/*.test.js\""
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.10",
+    "typescript": "^5.9.2"
+  }
+}
