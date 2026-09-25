@@ -18,12 +18,17 @@
  *  - Java's `gainExp/gainWits/gainCharm` calls were embedded in dead
  *    `String.valueOf` expressions; they have side effects, so they are kept as
  *    statements (their text is appended only where Java appended it).
+ *  - `findClanInfo` and every clan mutation (make/kill/petition mail) now go
+ *    through `FileLoader` promises: `action()` fires them and the continuation
+ *    sets the region.  Refunds, fatigue and clan rollbacks stay before that
+ *    point, so they happen whether or not the player has navigated away.
  */
 
 import { Tools } from "../../../Tools/Tools";
 import { Constants } from "../../../Static/Constants";
 import { GameStrings } from "../../../Static/GameStrings";
-import { Loader } from "../../../Tools/Loader";
+import { Buffer } from "../../../Tools/Buffer";
+import { FileLoader } from "../../../Tools/FileLoader";
 import { MadLib } from "../../../Tools/MadLib";
 import { Screen } from "../../../ui/screen";
 import { Button } from "../../../ui/button";
@@ -107,7 +112,7 @@ export class arClanHall extends Indoors {
   private create: Checkbox | null = null;
   private confirm!: Checkbox;
   private showPetitions = false;
-  private petition: itValue | null = null;
+  private petition: itValue | itNote | null = null;
   private heroStatus = 0;
   private clanStatus = 0;
 
@@ -162,7 +167,7 @@ export class arClanHall extends Indoors {
       if (this.petition === null) {
         this.label("No Petitions Outstanding", 180, 170);
       } else {
-        this.label("Petition from " + this.petition.getValue(), 180, 170);
+        this.label("Petition from " + this.petitionWho(), 180, 170);
       }
     }
   }
@@ -173,23 +178,23 @@ export class arClanHall extends Indoors {
 
     if (e.target === this.enact) {
       const act = this.clanAction.getCurrent();
-      if (act === this.join) Tools.setRegion(this.petitionClan());
-      if (act === this.create) Tools.setRegion(this.createClan());
+      if (act === this.join) void this.petitionClan();
+      if (act === this.create) void this.createClan();
       if (act === this.quit) {
-        if (this.heroStatus === LEADER) Tools.setRegion(this.disbandClan());
+        if (this.heroStatus === LEADER) void this.disbandClan();
         else Tools.setRegion(this.quitClan());
       }
     }
     if (e.target !== this.confirm) this.confirm.setState(false);
     if (e.target === this.clantext && this.clantext !== null) {
-      this.findClanInfo(this.clantext.getText());
+      void this.findClanInfo(this.clantext.getText());
     }
     if (e.target === this.getPic(0)) Tools.setRegion(this.getHome());
     if (this.petition !== null) {
-      if (e.target === this.peer) Tools.setRegion(new arPeer(this, 4, this.petition.getValue()));
+      if (e.target === this.peer) Tools.setRegion(new arPeer(this, 4, this.petitionWho()));
       if (e.target === this.next) this.findNextPetition();
-      if (e.target === this.grant) Tools.setRegion(this.grantPetition());
-      if (e.target === this.deny) Tools.setRegion(this.denyPetition());
+      if (e.target === this.grant) void this.grantPetition();
+      if (e.target === this.deny) void this.denyPetition();
     }
     this.updateTools();
     this.repaint();
@@ -199,11 +204,7 @@ export class arClanHall extends Indoors {
   /** Java `createTools()`. */
   override createTools(): void {
     const h = Screen.getHero();
-    const backC = color(255, 255, 128);
-    this.findClanInfo(h.getClan());
-    if (this.current === null) this.heroStatus = CLANLESS;
-    else if (!h.isMatch(this.leader)) this.heroStatus = MEMBER;
-    else this.heroStatus = LEADER;
+    void this.findClanInfo(h.getClan());
 
     this.enact = new Button();
     this.enact.reshape(170, 160, 220, 25);
@@ -214,6 +215,23 @@ export class arClanHall extends Indoors {
     this.confirm.setFont(Tools.textF);
     this.confirm.show(false);
 
+    this.buildStatusTools();
+  }
+
+  /**
+   * The heroStatus-dependent widgets. Re-runnable: `findClanInfo` resolves
+   * asynchronously, so the leader comparison that decides MEMBER vs LEADER is
+   * not known when `createTools` first builds the screen. When the peek lands
+   * and the classification changes, this rebuilds and remounts the widgets.
+   */
+  private buildStatusTools(): void {
+    const h = Screen.getHero();
+    const backC = color(255, 255, 128);
+    if (this.current === null) this.heroStatus = CLANLESS;
+    else if (!h.isMatch(this.leader)) this.heroStatus = MEMBER;
+    else this.heroStatus = LEADER;
+
+    this.clantext = null;
     if (this.heroStatus !== LEADER) {
       const clan = h.getClan();
       this.clantext = new FTextField(clan == null ? Constants.NONE : String(clan), 40);
@@ -270,6 +288,11 @@ export class arClanHall extends Indoors {
       this.deny.setFont(Tools.textF);
       this.deny.reshape(340, 175, 50, 20);
       this.deny.show(false);
+    } else {
+      this.peer = null;
+      this.next = null;
+      this.grant = null;
+      this.deny = null;
     }
   }
 
@@ -351,8 +374,8 @@ export class arClanHall extends Indoors {
     }
   }
 
-  /** Java `findClanInfo(String)`. */
-  findClanInfo(clan: string | null): void {
+  /** Java `findClanInfo(String)`; the clan record is fetched asynchronously. */
+  async findClanInfo(clan: string | null): Promise<void> {
     this.clanStatus = 0;
     this.current = clan === null ? null : Tools.detokenize(clan.trim());
     this.power = 0;
@@ -363,11 +386,12 @@ export class arClanHall extends Indoors {
     if (current === null || current.length < 1 || Constants.NONE.toUpperCase() === current.toUpperCase()) {
       return;
     }
-    // Java called repaint() here; omitted because the DOM repaint is synchronous
-    // and createTools() has not finished building clanAction yet.
-    const buf = Loader.cgiBuffer(Loader.PEEKCLAN, current);
-    if (buf === null || buf.isEmpty() || buf.isError()) {
+    // Java called repaint() here (mid-createTools); the port repaints once the
+    // record has arrived instead, at the end of this method.
+    const buf = new Buffer(await FileLoader.peekClan(current));
+    if (buf.isEmpty() || buf.isError()) {
       this.clanStatus = 2;
+      if (!Tools.movedAway(this)) this.repaint();
       return;
     }
     this.clanStatus = 1;
@@ -383,8 +407,30 @@ export class arClanHall extends Indoors {
       sent.replace("$leader$", this.leader);
       sent.replace("$clan$", current);
       sent.replace("$ruler$", "Queen Beth");
-      Tools.setRegion(new arNotice(this.getHome(), sent.getText()));
+      this.rebuildStatusTools();
+      if (!Tools.movedAway(this)) Tools.setRegion(new arNotice(this.getHome(), sent.getText()));
+      return;
     }
+    if (this.rebuildStatusTools()) return;
+    if (!Tools.movedAway(this)) this.repaint();
+  }
+
+  /**
+   * True when the classification changed and the screen was remounted (the
+   * widgets differ between CLANLESS / MEMBER / LEADER).
+   */
+  private rebuildStatusTools(): boolean {
+    const before = this.heroStatus;
+    this.buildStatusTools();
+    if (this.heroStatus === before) {
+      return false;
+    }
+    if (!Tools.movedAway(this)) {
+      this.clearWidgets();
+      this.addTools();
+      this.repaint();
+    }
+    return true;
   }
 
   /** Java `quitClan()`. */
@@ -408,11 +454,11 @@ export class arClanHall extends Indoors {
     return new arNotice(this.getHome(), leaveClan);
   }
 
-  /** Java `createClan()`. */
-  createClan(): Screen | null {
+  /** Java `createClan()`; the clan record is written asynchronously. */
+  async createClan(): Promise<void> {
     const h = Screen.getHero();
     const current = this.current;
-    if (current === null || h.getQuests() < CREATE_QUESTS || h.getMoney() < CREATE_COSTS) return null;
+    if (current === null || h.getQuests() < CREATE_QUESTS || h.getMoney() < CREATE_COSTS) return;
     const oldClan = h.getClan();
     h.setClan(current);
     h.subMoney(CREATE_COSTS);
@@ -421,31 +467,35 @@ export class arClanHall extends Indoors {
       h.subFatigue(CREATE_QUESTS);
       h.addMoney(CREATE_COSTS);
       h.setClan(oldClan);
-      return new arNotice(this, GameStrings.SAVE_CANCEL);
+      Tools.setRegion(new arNotice(this, GameStrings.SAVE_CANCEL));
+      return;
     }
-    const buf = Loader.cgiBuffer(
-      Loader.MAKECLAN,
-      h.getName() + "|" + Screen.getPlayer().getSessionID() + "|" + current,
-    );
-    if (buf === null || buf.isError()) {
+    const result = await FileLoader.makeClan(h.getName(), current);
+    if (result !== null) {
       h.subFatigue(CREATE_QUESTS);
       h.addMoney(CREATE_COSTS);
       h.setClan(oldClan);
-      return new arNotice(this, GameStrings.SAVE_CANCEL);
+      if (!Tools.movedAway(this)) {
+        Tools.setRegion(new arNotice(this, GameStrings.SAVE_CANCEL));
+      }
+      return;
     }
     const sent = new MadLib(createMsg);
     sent.replace("$leader$", this.leader ?? Constants.NONE);
     sent.replace("$clan$", current);
     sent.replace("$ruler$", "Queen Beth");
     const msg = sent.getText() + h.gainExp(h.getLevel() * h.getLevel() * 10);
-    return new arNotice(this.getHome(), msg + h.gainWits(500) + h.gainCharm(500));
+    const text = msg + h.gainWits(500) + h.gainCharm(500);
+    if (!Tools.movedAway(this)) {
+      Tools.setRegion(new arNotice(this.getHome(), text));
+    }
   }
 
-  /** Java `disbandClan()`. */
-  disbandClan(): Screen | null {
+  /** Java `disbandClan()`; the clan record is removed asynchronously. */
+  async disbandClan(): Promise<void> {
     const h = Screen.getHero();
     const current = this.current;
-    if (current === null || h.getQuests() < DISBAND_QUESTS || h.getMoney() < DISBAND_COSTS) return null;
+    if (current === null || h.getQuests() < DISBAND_QUESTS || h.getMoney() < DISBAND_COSTS) return;
     const oldClan = h.getClan();
     h.setClan(current);
     h.subMoney(DISBAND_COSTS);
@@ -454,64 +504,84 @@ export class arClanHall extends Indoors {
       h.subFatigue(15);
       h.addMoney(DISBAND_COSTS);
       h.setClan(oldClan);
-      return new arNotice(this, GameStrings.SAVE_CANCEL);
+      Tools.setRegion(new arNotice(this, GameStrings.SAVE_CANCEL));
+      return;
     }
-    const buf = Loader.cgiBuffer(
-      Loader.KILLCLAN,
-      h.getName() + "|" + Screen.getPlayer().getSessionID() + "|" + current,
-    );
-    if (buf === null || buf.isError()) {
+    const result = await FileLoader.killClan(h.getName(), current);
+    if (result !== null) {
       h.subFatigue(15);
       h.addMoney(DISBAND_COSTS);
       h.setClan(oldClan);
-      return new arNotice(this, GameStrings.SAVE_CANCEL);
+      if (!Tools.movedAway(this)) {
+        Tools.setRegion(new arNotice(this, GameStrings.SAVE_CANCEL));
+      }
+      return;
     }
     const sent = new MadLib(disbandMsg);
     sent.replace("$leader$", this.leader ?? Constants.NONE);
     sent.replace("$clan$", current);
     sent.replace("$ruler$", "Queen Beth");
     const msg = sent.getText() + h.gainExp(h.getLevel() * h.getLevel() + 10);
-    return new arNotice(this.getHome(), msg + h.gainWits(100) + h.gainCharm(100));
+    const text = msg + h.gainWits(100) + h.gainCharm(100);
+    if (!Tools.movedAway(this)) {
+      Tools.setRegion(new arNotice(this.getHome(), text));
+    }
   }
 
-  /** Java `petitionClan()`. */
-  petitionClan(): Screen | null {
+  /** Java `petitionClan()`; the petition mail is sent asynchronously. */
+  async petitionClan(): Promise<void> {
     const h = Screen.getHero();
     if (this.current === null || this.clanStatus !== 1 || h.getQuests() < JOIN_QUESTS || h.getMoney() < JOIN_COSTS) {
-      return null;
+      return;
     }
     h.subMoney(JOIN_COSTS);
     h.addFatigue(1);
     if (!Screen.saveHero()) {
       h.addMoney(JOIN_COSTS);
       h.subFatigue(1);
-      return new arNotice(this, GameStrings.SAVE_CANCEL);
+      Tools.setRegion(new arNotice(this, GameStrings.SAVE_CANCEL));
+      return;
     }
     const mail = new itList(Constants.MAIL);
     mail.append(new itNote("Petition", h.getName(), "Sire,\nI wish to join thy guild.\nThankee"));
-    const result = arPackage.send(h.getTitle() + h.getName(), this.leader ?? Constants.NONE, mail);
+    const result = await arPackage.send(h.getTitle() + h.getName(), this.leader ?? Constants.NONE, mail);
     if (result !== null) {
       h.addMoney(JOIN_COSTS);
       h.subFatigue(1);
-      return new arNotice(this, GameStrings.MAIL_CANCEL + result);
+      if (!Tools.movedAway(this)) {
+        Tools.setRegion(new arNotice(this, GameStrings.MAIL_CANCEL + result));
+      }
+      return;
     }
     const sent = new MadLib(petitionMsg);
     sent.replace("$leader$", this.leader ?? Constants.NONE);
     sent.replace("$clan$", this.current);
-    return new arNotice(this.getHome(), sent.getText());
+    if (!Tools.movedAway(this)) {
+      Tools.setRegion(new arNotice(this.getHome(), sent.getText()));
+    }
+  }
+
+  /**
+   * The petitioner's name: petitions mailed by `petitionClan` are itNotes (the
+   * name is the note's `from`), while Java's original check only accepted
+   * itValues (`getValue()`), so both shapes are honored here.
+   */
+  private petitionWho(): string {
+    if (this.petition instanceof itNote) return this.petition.getFrom() ?? "";
+    return this.petition?.getValue() ?? "";
   }
 
   /** Java `findNextPetition()`. */
   findNextPetition(): void {
     const it = Screen.getPack().select("Petition", this.petitionID + 1);
-    if (it !== null && it !== undefined && it instanceof itValue) {
+    if (it !== null && it !== undefined && (it instanceof itValue || it instanceof itNote)) {
       this.petitionID++;
       this.petition = it;
     } else if (this.petitionID < 0) {
       this.petition = null;
     } else {
       const it2 = Screen.getPack().select("Petition", 0);
-      if (it2 instanceof itValue) {
+      if (it2 instanceof itValue || it2 instanceof itNote) {
         this.petitionID = 0;
         this.petition = it2;
         return;
@@ -520,16 +590,17 @@ export class arClanHall extends Indoors {
     }
   }
 
-  /** Java `grantPetition()`. */
-  grantPetition(): Screen | null {
+  /** Java `grantPetition()`; the grant mail is sent asynchronously. */
+  async grantPetition(): Promise<void> {
     const hero = Screen.getHero();
     const petition = this.petition;
-    if (petition === null) return null;
-    const who = petition.getValue() ?? "";
+    if (petition === null) return;
+    const who = this.petitionWho();
     Screen.subPack(petition);
     if (!Screen.saveHero()) {
       Screen.putPack(petition);
-      return new arNotice(this, GameStrings.SAVE_CANCEL);
+      Tools.setRegion(new arNotice(this, GameStrings.SAVE_CANCEL));
+      return;
     }
     const mail = new itList(Constants.MAIL);
     mail.append(
@@ -539,27 +610,33 @@ export class arClanHall extends Indoors {
         "Greetings,\nIt is my pleasure to welcome you to our guild.\nGuildmaster",
       ),
     );
-    const result = arPackage.send(hero.getTitle() + hero.getName(), who, mail);
+    const result = await arPackage.send(hero.getTitle() + hero.getName(), who, mail);
     if (result !== null) {
       Screen.putPack(petition);
-      return new arNotice(this, GameStrings.MAIL_CANCEL + result);
+      if (!Tools.movedAway(this)) {
+        Tools.setRegion(new arNotice(this, GameStrings.MAIL_CANCEL + result));
+      }
+      return;
     }
     const sent = new MadLib(grantMsg);
     sent.replace("$name$", who);
     sent.replace("$clan$", String(hero.getClan() ?? Constants.NONE));
-    return new arNotice(this, sent.getText());
+    if (!Tools.movedAway(this)) {
+      Tools.setRegion(new arNotice(this, sent.getText()));
+    }
   }
 
-  /** Java `denyPetition()`. */
-  denyPetition(): Screen | null {
+  /** Java `denyPetition()`; the denial mail is sent asynchronously. */
+  async denyPetition(): Promise<void> {
     const h = Tools.getHero();
     const petition = this.petition;
-    if (petition === null) return null;
-    const who = petition.getValue() ?? "";
+    if (petition === null) return;
+    const who = this.petitionWho();
     Screen.subPack(petition);
     if (!Screen.saveHero()) {
       Screen.putPack(petition);
-      return new arNotice(this, GameStrings.SAVE_CANCEL);
+      Tools.setRegion(new arNotice(this, GameStrings.SAVE_CANCEL));
+      return;
     }
     const msg = new MadLib(denyMsg);
     msg.replace("$today$", Tools.getToday());
@@ -568,9 +645,16 @@ export class arClanHall extends Indoors {
     msg.replace("$leader$", h.getTitle() + h.getName());
     const mail = new itList(Constants.MAIL);
     mail.append(new itNote("Denial", h.getName(), msg.getText()));
-    const result = arPackage.send(h.getTitle() + h.getName(), who, mail);
-    if (result === null) return new arNotice(this, denyHead + msg.getText());
+    const result = await arPackage.send(h.getTitle() + h.getName(), who, mail);
+    if (result === null) {
+      if (!Tools.movedAway(this)) {
+        Tools.setRegion(new arNotice(this, denyHead + msg.getText()));
+      }
+      return;
+    }
     Screen.putPack(petition);
-    return new arNotice(this, GameStrings.MAIL_CANCEL + result);
+    if (!Tools.movedAway(this)) {
+      Tools.setRegion(new arNotice(this, GameStrings.MAIL_CANCEL + result));
+    }
   }
 }

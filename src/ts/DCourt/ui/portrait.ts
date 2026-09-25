@@ -15,7 +15,7 @@
 
 import { type ColorSpec, color, div, fontCss } from "./dom";
 import { Widget } from "./widget";
-import { loadImage } from "./resources";
+import { loadImage, setArtSrc } from "./resources";
 
 export class Portrait extends Widget {
   static readonly NOTEXT = 0;
@@ -80,10 +80,11 @@ export class Portrait extends Widget {
       this.img.removeAttribute("src");
       return;
     }
-    const cached = loadImage(where);
-    // `loadImage` caches elements: copy the resolved URL instead of moving the
-    // cached element through the document.
-    this.img.src = cached ? cached.src : where;
+    // `loadImage` caches elements: prime the cache, then give this portrait its
+    // own `<img>` for the same art (a cached element can only live in one
+    // parent).  `setArtSrc` carries the variant-falls-back-to-jpg behaviour.
+    loadImage(where);
+    setArtSrc(this.img, where);
   }
 
   /** Java `Portrait.getIcon()`; null when this portrait has no art. */

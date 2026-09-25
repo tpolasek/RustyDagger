@@ -120,6 +120,8 @@ export class FileLoader extends Loader {
 
   private static readonly heroListeners = new Map<string, Array<(text: string) => void>>();
 
+  private static findValues: string | null = null;
+
   static override cgiBuffer(action: string, data: string): Buffer {
     return new Buffer(FileLoader.cgi(action, data));
   }
@@ -130,7 +132,7 @@ export class FileLoader extends Loader {
     const yyyy = `${now.getFullYear()}`;
     const mm = `${now.getMonth() + 1}`.padStart(2, '0');
     const dd = `${now.getDate()}`.padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
+    return `${yyyy}/${mm}/${dd}`;
   }
 
   static async probeServer(): Promise<boolean> {
@@ -259,7 +261,7 @@ export class FileLoader extends Loader {
   static override cgi(action: string, _data: string): string {
     if (action === Loader.FINDHERO) {
       log('FIND HERO');
-      return `${FileLoader.getToday()}|0||`;
+      return FileLoader.findValues ?? `${FileLoader.getToday()}|0||`;
     }
     log(`${action} not implemented`);
     return `Error: ${action} not implemented`;
@@ -315,5 +317,133 @@ export class FileLoader extends Loader {
     } catch (e) {
       log(`migrate failed: ${errorMessage(e)}`);
     }
+  }
+
+  static async fetchFind(name: string): Promise<void> {
+    if (FileLoader.serverBase === null) {
+      return;
+    }
+    try {
+      const res = await fetch(`api/find/${encodeURIComponent(name)}`, { cache: 'no-store' });
+      if (res.ok) {
+        FileLoader.findValues = await res.text();
+      }
+    } catch (e) {
+      log(`find failed for ${name}: ${errorMessage(e)}`);
+    }
+  }
+
+  static async sendMail(
+    from: string,
+    dest: string,
+    label: string,
+    contents: string
+  ): Promise<string | null> {
+    if (FileLoader.serverBase === null) {
+      return null;
+    }
+    try {
+      const res = await fetch('api/mail/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from, dest, label, contents }),
+      });
+      const text = await res.text();
+      return text.startsWith('Error:') ? text : null;
+    } catch (e) {
+      return `Error: ${errorMessage(e)}`;
+    }
+  }
+
+  static async listMail(name: string): Promise<Array<{ id: number; label: string }>> {
+    if (FileLoader.serverBase === null) {
+      return [];
+    }
+    try {
+      const res = await fetch(`api/mail/list/${encodeURIComponent(name)}`, { cache: 'no-store' });
+      return res.ok ? ((await res.json()) as Array<{ id: number; label: string }>) : [];
+    } catch (e) {
+      log(`listMail failed: ${errorMessage(e)}`);
+      return [];
+    }
+  }
+
+  static async takeMail(name: string, id: number): Promise<Buffer> {
+    try {
+      const res = await fetch('api/mail/take', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, id }),
+      });
+      return new Buffer(res.ok ? await res.text() : 'Error: no such mail');
+    } catch (e) {
+      return new Buffer(`Error: ${errorMessage(e)}`);
+    }
+  }
+
+  static async peekClan(clan: string): Promise<string> {
+    if (FileLoader.serverBase === null) {
+      return '';
+    }
+    try {
+      const res = await fetch(`api/clan/${encodeURIComponent(clan)}`, { cache: 'no-store' });
+      return res.ok ? await res.text() : '';
+    } catch (e) {
+      log(`peekClan failed: ${errorMessage(e)}`);
+      return '';
+    }
+  }
+
+  static async makeClan(name: string, clan: string): Promise<string | null> {
+    return FileLoader.clanMutation('api/clan/make', name, clan);
+  }
+
+  static async killClan(name: string, clan: string): Promise<string | null> {
+    return FileLoader.clanMutation('api/clan/kill', name, clan);
+  }
+
+  private static async clanMutation(
+    url: string,
+    name: string,
+    clan: string
+  ): Promise<string | null> {
+    if (FileLoader.serverBase === null) {
+      return null;
+    }
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, clan }),
+      });
+      const text = await res.text();
+      return text.startsWith('Error:') ? text : null;
+    } catch (e) {
+      return `Error: ${errorMessage(e)}`;
+    }
+  }
+
+  static async fetchRankings(): Promise<string | null> {
+    if (FileLoader.serverBase === null) {
+      return null;
+    }
+    try {
+      const res = await fetch('api/rank', { cache: 'no-store' });
+      return res.ok ? await res.text() : null;
+    } catch (e) {
+      log(`fetchRankings failed: ${errorMessage(e)}`);
+      return null;
+    }
+  }
+
+  static saveScore(name: string, rank: string): void {
+    if (FileLoader.serverBase === null) {
+      return;
+    }
+    void fetch('api/rank/score', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, rank }),
+    }).catch((e) => log(`saveScore failed: ${errorMessage(e)}`));
   }
 }

@@ -3,16 +3,16 @@
  * (Java: `Sloeth Dreyfus Postal Express`).
  *
  * An `Indoors` screen holding a mail list (`FTextList`) plus Take/Send
- * buttons.  `loadMailList()`/`takePackage()` go through the same `Loader`
- * CGI stubs the Java did, so the multiplayer branches stay inert while the
- * local flow (list, error notice, pack merge) is preserved.
+ * buttons.  `loadMailList()`/`takePackage()` run through `FileLoader`, whose
+ * mail calls are empty/error-free in local mode, so the local flow (empty list,
+ * error notice, pack merge) is preserved while server mode gets real mail.
  *
  * Port note: the `Indoors` portraits are registered by the `Indoors`
  * constructor, so `createTools()` only builds the mail widgets.
  */
 
 import { Tools } from "../../../Tools/Tools";
-import { Loader } from "../../../Tools/Loader";
+import { FileLoader } from "../../../Tools/FileLoader";
 import { Screen } from "../../../ui/screen";
 import { Button } from "../../../ui/button";
 import { FTextList } from "../../../ui/textList";
@@ -42,7 +42,8 @@ export class arPostal extends Indoors {
   private take!: Button;
   private send!: Button;
   private postbox!: FTextList;
-  private mail: itList | null = null;
+  /** Java `itList mail`; the server hands back one row per package. */
+  private mailRows: Array<{ id: number; label: string }> | null = null;
 
   constructor(from: Screen | null) {
     super(from, "Sloeth Dreyfus Postal Express");
@@ -70,7 +71,7 @@ export class arPostal extends Indoors {
   /** Java `action(Event, Object)`. */
   override action(e: GameEvent, o?: unknown): boolean {
     if (Tools.movedAway(this)) return true;
-    if (e.target === this.take) Tools.setRegion(this.takePackage());
+    if (e.target === this.take) void this.takePackage();
     if (e.target === this.send) Tools.setRegion(new arPackage(this));
     if (e.target === this.getPic(0)) Tools.setRegion(this.getHome());
     this.repaint();
@@ -90,10 +91,9 @@ export class arPostal extends Indoors {
     this.postbox.reshape(160, 70, 230, 180);
     this.postbox.setFont(Tools.textF);
 
-    if (this.mail === null) this.loadMailList();
-    if (this.mail !== null) {
-      for (const it of this.mail.elements()) this.postbox.addItem(it.getName());
-    }
+    if (this.mailRows === null) void this.loadMailList();
+    else this.fillPostbox();
+
     this.postbox.setSelect(-1);
     this.updateTools(h);
   }
@@ -111,35 +111,44 @@ export class arPostal extends Indoors {
     this.take.enable(this.postbox.getSelect() >= 0 && h.getMoney() >= 100);
   }
 
-  /** Java `loadMailList()`. */
-  loadMailList(): void {
-    this.mail = Loader.cgiItem<itList>(
-      Loader.LISTMAIL,
-      Screen.getHero().getName() + "|" + Screen.getPlayer().getSessionID(),
-    );
+  /** Java `loadMailList()`; the server hands the list back asynchronously. */
+  async loadMailList(): Promise<void> {
+    this.mailRows = await FileLoader.listMail(Screen.getHero().getName());
+    this.fillPostbox();
+    this.postbox.setSelect(-1);
+    this.updateTools(Screen.getHero());
+    if (!Tools.movedAway(this)) this.repaint();
   }
 
-  /** Java `takePackage()`. */
-  takePackage(): Screen | null {
+  /** Java's `createTools` loop over `mail.elements()`, over the server's labels. */
+  private fillPostbox(): void {
+    for (const row of this.mailRows ?? []) this.postbox.addItem(row.label);
+  }
+
+  /** Java `takePackage()`; the package body is fetched asynchronously. */
+  async takePackage(): Promise<void> {
     const h = Screen.getHero();
     const index = this.postbox.getSelect();
-    if (index < 0) return null;
-
-    const buf = Loader.cgiBuffer(
-      Loader.TAKEMAIL,
-      h.getName() + "|" + Screen.getSessionID() + "|" + index,
-    );
+    if (index < 0) return;
+    const row = this.mailRows?.[index] ?? null;
     const msg = this.postbox.getItem(index);
     this.postbox.delItem(index);
+    this.mailRows?.splice(index, 1);
+    if (row === null) return;
 
+    const buf = await FileLoader.takeMail(h.getName(), row.id);
+    if (Tools.movedAway(this)) return;
     if (buf === null || buf.isEmpty() || buf.isError()) {
-      return new arNotice(
-        this,
-        "A transmission error has occurred:\n" +
-          (buf === null ? "" : buf.peek()) +
-          "\n" +
-          "Sorry About That.",
+      Tools.setRegion(
+        new arNotice(
+          this,
+          "A transmission error has occurred:\n" +
+            (buf === null ? "" : buf.peek()) +
+            "\n" +
+            "Sorry About That.",
+        ),
       );
+      return;
     }
 
     let msg2 =
@@ -161,6 +170,6 @@ export class arPostal extends Indoors {
 
     h.subMoney(100);
     Screen.saveHero();
-    return new arNotice(this, msg2);
+    Tools.setRegion(new arNotice(this, msg2));
   }
 }

@@ -8,10 +8,16 @@
  * element is decoded in place, exactly like AWT's asynchronous image loading.
  * `preload()`/`preloadAll()` are the awaiting variants that the Phase 4
  * loading screen (`arLoading`) needs.
+ *
+ * Art paths are the Java ones ("Faces/Hero.jpg"), but the bytes served are the
+ * 16x renderings that sit beside them; the original `.jpg` stays on disk as the
+ * fallback when a variant is missing.
  */
 
 /** Relative art directory; Java's `DCourtApplet.artpath` was "Images". */
 let artPath = "Images";
+
+const JPEG_SUFFIX = /\.jpe?g$/i;
 
 /** Path prefix used for every image request. */
 export function getArtpath(): string {
@@ -23,9 +29,30 @@ export function setArtpath(path: string): void {
   artPath = path.replace(/\/+$/, "");
 }
 
+/** 16x art variant for a path: "Faces/Hero.jpg" -> "Faces/Hero_16x.png". */
+export function artVariant(path: string): string {
+  return JPEG_SUFFIX.test(path) ? path.replace(JPEG_SUFFIX, "_16x.png") : path;
+}
+
 /** Full URL for an art path such as `"Faces/Hero.jpg"`. */
 export function resourceUrl(path: string): string {
-  return `${artPath}/${path}`;
+  return `${artPath}/${artVariant(path)}`;
+}
+
+/**
+ * Point an `<img>` at the 16x variant, falling back to the original art file
+ * once if that variant cannot be loaded.  The listener is registered with
+ * `{ once: true }` and never re-armed, so a missing original ends the chain
+ * instead of looping.
+ */
+export function setArtSrc(img: HTMLImageElement, path: string): void {
+  const variant = resourceUrl(path);
+  img.src = variant;
+  const original = `${artPath}/${path}`;
+  if (variant === original) return;
+  img.addEventListener("error", () => {
+    img.src = original;
+  }, { once: true });
 }
 
 const resourceTable = new Map<string, unknown>();
@@ -71,7 +98,7 @@ export function loadImage(path: string | null | undefined): HTMLImageElement | n
   const img = document.createElement("img");
   img.decoding = "async";
   img.alt = "";
-  img.src = resourceUrl(path);
+  setArtSrc(img, path);
   storeResource(path, img);
   return img;
 }
@@ -82,7 +109,7 @@ export function loadImage(path: string | null | undefined): HTMLImageElement | n
  */
 export function imageElement(path: string, x: number, y: number, w: number, h: number): HTMLImageElement {
   const img = document.createElement("img");
-  img.src = resourceUrl(path);
+  setArtSrc(img, path);
   img.alt = "";
   img.decoding = "async";
   img.style.position = "absolute";

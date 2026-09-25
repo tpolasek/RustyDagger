@@ -6,6 +6,8 @@
  * `init()` digests the buffer through `Item.factory`; the CGI layer is stubbed in
  * the browser build (`Loader.cgi` returns ""), so the boards come back empty and
  * the screen paints "No Records Found" - the documented parity behaviour.
+ * `init()` then refreshes from `FileLoader.fetchRankings()` (server mode only),
+ * which repaints the boards once the records arrive.
  *
  * DOM notes:
  *  - the rows are painted into the screen's paint layer (they are not widgets),
@@ -25,7 +27,8 @@ import { Screen } from "../../ui/screen";
 import { Button } from "../../ui/button";
 import { FScrollbar } from "../../ui/textList";
 import type { GameEvent } from "../../ui/widget";
-import type { Buffer } from "../../Tools/Buffer";
+import { Buffer } from "../../Tools/Buffer";
+import { FileLoader } from "../../Tools/FileLoader";
 import { Tools } from "../../Tools/Tools";
 import { arNotice } from "../Utility/arNotice";
 
@@ -110,6 +113,18 @@ export class arRanking extends Screen {
     }
     this.digest(buf as Buffer);
     // `super.init()` already painted once, before the boards existed.
+    this.repaint();
+    // The local file is a stub in the browser build; the server file arrives here.
+    void this.refresh();
+  }
+
+  /** `FileLoader.fetchRankings()`; a no-op off-server (`null`). */
+  private async refresh(): Promise<void> {
+    const text = await FileLoader.fetchRankings();
+    if (text === null || Tools.movedAway(this)) {
+      return;
+    }
+    this.digest(new Buffer(text));
     this.repaint();
   }
 

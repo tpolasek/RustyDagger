@@ -10,6 +10,10 @@
  * and a method there, which TypeScript cannot express in one class, so the
  * fields are private `petitionBtn` / `investBtn` (the methods keep the Java
  * names).
+ *
+ * `invest` mails its investment letter through `arPackage.send`, which is a
+ * promise now, so it awaits the send before setting the region (the refund
+ * branch runs first either way).
  */
 
 import { color } from "../../ui/dom";
@@ -182,7 +186,7 @@ export class arQueen extends Indoors {
     if (e.target === this.petitionBtn) {
       this.petition();
     } else if (e.target === this.investBtn) {
-      this.invest();
+      void this.invest();
     } else if (e.target === this.getPic(0)) {
       Tools.setRegion(this.getHome());
     }
@@ -236,7 +240,7 @@ export class arQueen extends Indoors {
   }
 
   /** Java `arQueen.invest()` (was `synchronized`; the port is single threaded). */
-  invest(): void {
+  async invest(): Promise<void> {
     /* Java short-circuits in this order, so the roll only happens when the
      * hero can afford the venture. */
     if (Screen.getQuests() < 5 || Screen.getMoney() < arQueen.INVEST_COST) {
@@ -307,14 +311,18 @@ export class arQueen extends Indoors {
       Tools.setRegion(new arNotice(this.getHome(), GameStrings.SAVE_CANCEL));
       return;
     }
-    const result = arPackage.send(name, String(this.hero.getName()), mail);
+    const result = await arPackage.send(name, String(this.hero.getName()), mail);
     if (result != null) {
       Screen.addMoney(arQueen.INVEST_COST);
       this.hero.subFatigue(5);
-      Tools.setRegion(new arNotice(this, GameStrings.MAIL_CANCEL.concat(result)));
+      if (!Tools.movedAway(this)) {
+        Tools.setRegion(new arNotice(this, GameStrings.MAIL_CANCEL.concat(result)));
+      }
       return;
     }
-    Tools.setRegion(new arNotice(this, msg.getText()));
+    if (!Tools.movedAway(this)) {
+      Tools.setRegion(new arNotice(this, msg.getText()));
+    }
   }
 
   /** Java `arQueen.petition()` (was `synchronized`; the port is single threaded). */

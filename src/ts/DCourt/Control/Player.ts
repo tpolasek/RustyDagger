@@ -49,7 +49,8 @@ export {
  *
  * Port notes:
  *  - `FileLoader` (localStorage-backed, ported separately) replaces the file-based loader; the
- *    calls are otherwise identical (`cgiBuffer(FINDHERO, ...)`, `loadHero`, `saveHero`, `cgi`).
+ *    calls are otherwise identical (`cgiBuffer(FINDHERO, ...)`, `loadHero`, `saveHero`); the
+ *    ranking record goes through `FileLoader.saveScore` (fire-and-forget).
  *  - Screens that Java constructed directly - `new arExit(from, loc)`, `new arNotice(from, msg)`,
  *    `new arError(msg)` - are resolved through the registration table in `./ScreenRegistry`
  *    (`getExitScreen`/`getNoticeScreen`/`getErrorScreen`). That keeps `Player` free of any direct
@@ -257,12 +258,9 @@ export class Player {
     return false;
   }
 
-  /** Java `saveScore()` (`Player.java:190-201`). */
+  /** Java `saveScore()` (`Player.java:190-201`); the server record is fire-and-forget. */
   saveScore(): void {
-    FileLoader.cgi(
-      Loader.SAVESCORE,
-      `${this.name}|${this.sessionID}\n${this.heroOrThrow().rankString()}\n`
-    );
+    FileLoader.saveScore(this.name ?? "", this.heroOrThrow().rankString());
   }
 
   /**

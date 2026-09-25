@@ -239,6 +239,7 @@ export class arEntry extends Screen {
           log(`new account ${name}`);
         }
         await FileLoader.fetchHero(name);
+        await FileLoader.fetchFind(name);
         this.pending = false;
         if (!Tools.movedAway(this)) {
           Tools.setRegion(this.enterGame());

@@ -15,15 +15,15 @@
  *    typed loosely, hence the cast);
  *  - `localPaint` used Java's no-argument `Screen.packCount()`, which is
  *    `Screen.getHero().packCount()` in the bytecode;
- *  - `send` reuses Java's `" Package <== "` header and `|`-separated payload,
- *    through the (stubbed) `Loader.cgiBuffer(Loader.SENDMAIL, ...)`.
+ *  - `send` reuses Java's `" Package <== "` header as the mail label, but the
+ *    transport is `FileLoader.sendMail` (a promise); the callers therefore
+ *    await it and set the region from the continuation.
  */
 
 import type { itHero } from "../../Items/List/itHero";
 import { itList } from "../../Items/itList";
 import { GameStrings } from "../../Static/GameStrings";
-import { Buffer } from "../../Tools/Buffer";
-import { Loader } from "../../Tools/Loader";
+import { FileLoader } from "../../Tools/FileLoader";
 import { MadLib } from "../../Tools/MadLib";
 import { Tools } from "../../Tools/Tools";
 import { Button } from "../../ui/button";
@@ -94,7 +94,7 @@ export class arPackage extends Transfer {
       return true;
     }
     if (e.target === this.send) {
-      Tools.setRegion(this.sendPackage());
+      void this.sendPackage();
     }
     return super.action(e, o);
   }
@@ -125,61 +125,67 @@ export class arPackage extends Transfer {
     super.updateTools();
   }
 
-  /** Java `sendPackage()`. */
-  sendPackage(): Screen {
+  /** Java `sendPackage()`; the mail transport is awaited before the region is set. */
+  async sendPackage(): Promise<void> {
     const h = Screen.getHero() as unknown as itHero;
     const dest = this.name.getText();
     if (dest.length < 4 || dest.length > 15) {
-      return new arNotice(
-        this,
-        `\tThe name you have selected is malformed:\n<${dest}>\n\n` +
-          "\tHero names must be at least 4 letters and no " +
-          "more than 15 letters\n",
+      Tools.setRegion(
+        new arNotice(
+          this,
+          `\tThe name you have selected is malformed:\n<${dest}>\n\n` +
+            "\tHero names must be at least 4 letters and no " +
+            "more than 15 letters\n",
+        ),
       );
+      return;
     }
     if (Screen.getHero().isMatch(dest)) {
-      return new arNotice(
-        this,
-        "\tWhat is the point of sending mail to yourself?\n\n\tIt poses a metaphysical conundrum, and lends the suggestion that you are insane.\n\n<<Why'd I go and say a fool thing like that?>>\n",
+      Tools.setRegion(
+        new arNotice(
+          this,
+          "\tWhat is the point of sending mail to yourself?\n\n\tIt poses a metaphysical conundrum, and lends the suggestion that you are insane.\n\n<<Why'd I go and say a fool thing like that?>>\n",
+        ),
       );
+      return;
     }
     const count = this.stashCount();
     h.subMoney(count * 100);
     if (!Screen.saveHero()) {
       h.addMoney(count * 100);
-      return new arNotice(this.getHome(), GameStrings.SAVE_CANCEL);
+      Tools.setRegion(new arNotice(this.getHome(), GameStrings.SAVE_CANCEL));
+      return;
     }
-    const result = arPackage.send(
+    const result = await arPackage.send(
       String(h.getTitle()).concat(String(h.getName())),
       dest,
       this.getStash() as itList,
     );
     if (result !== null) {
       Screen.addMoney(count * 100);
-      return new arNotice(this, GameStrings.MAIL_CANCEL.concat(result));
+      if (!Tools.movedAway(this)) {
+        Tools.setRegion(new arNotice(this, GameStrings.MAIL_CANCEL.concat(result)));
+      }
+      return;
     }
     const sent = new MadLib(arPackage.mailSent);
     sent.replace("$crash$", Tools.select(this.breaksound));
-    return new arNotice(this.getHome(), sent.getText());
+    if (!Tools.movedAway(this)) {
+      Tools.setRegion(new arNotice(this.getHome(), sent.getText()));
+    }
   }
 
   /** Java `public static String send(String source, String dest, itList mail)`. */
-  static send(source: string, dest: string, mail: itList): string | null {
-    const pkg = new Buffer(mail.toString());
-    let msg = Tools.getToday();
-    msg = msg.substring(0, msg.lastIndexOf("/"));
-    msg = msg.concat(" Package <== ".concat(source));
-    msg = msg.concat("|".concat(dest).concat("\n"));
-    msg = msg.concat(pkg.toString());
-    const payload = String(Screen.getHero().getName())
-      .concat("|")
-      .concat(String(Screen.getPlayer().getSessionID()))
-      .concat("|")
-      .concat(msg);
-    const buf = Loader.cgiBuffer(Loader.SENDMAIL, payload);
-    if (buf.isError()) {
-      return buf.peek();
-    }
-    return null;
+  static async send(source: string, dest: string, mail: itList): Promise<string | null> {
+    const today = Tools.getToday();
+    const label = today
+      .substring(0, today.lastIndexOf("/"))
+      .concat(" Package <== ".concat(source));
+    return FileLoader.sendMail(
+      String(Screen.getHero().getName()),
+      dest,
+      label,
+      mail.toString(),
+    );
   }
 }

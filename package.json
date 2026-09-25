@@ -7,10 +7,13 @@
     "build": "tsc --noEmit && esbuild src/ts/main.ts --bundle --outfile=dist/bundle.js --format=iife --target=es2022",
     "serve": "npm run build && node server.mjs",
     "start": "node server.mjs",
-    "test": "tsc -p tsconfig.test.json && node --test \"dist-test/test/*.test.js\""
+    "test": "tsc -p tsconfig.test.json && node --test \"dist-test/test/*.test.js\" \"test/*.api.test.mjs\""
   },
   "devDependencies": {
     "esbuild": "^0.25.10",
     "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3"
   }
 }

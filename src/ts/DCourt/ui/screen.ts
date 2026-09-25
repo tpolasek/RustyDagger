@@ -316,7 +316,7 @@ export abstract class Screen {
     this.root.replaceChildren(this.paintLayer);
   }
 
-  private clearWidgets(): void {
+  protected clearWidgets(): void {
     this.widgets.length = 0;
     this.root.replaceChildren(this.paintLayer);
   }
